@@ -1,6 +1,6 @@
 import os
 from langchain_openai import ChatOpenAI
-from langchain.chains import ConversationalRetrievalChain
+from langchain.chains import ConversationalRetrievalChain, ConversationChain
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
 from core.embedding_manager import get_embeddings
@@ -27,23 +27,23 @@ QA_TEMPLATE = """你是一个精通深度学习与人类活动识别（HAR）领
 
 QA_PROMPT = PromptTemplate(template=QA_TEMPLATE, input_variables=["context", "question"])
 
-def get_llm():
+def get_llm(model_name="glm-4"):
     """初始化智谱 AI 大模型"""
     api_key = os.getenv("ZHIPUAI_API_KEY")
     if not api_key:
         raise ValueError("环境变量 ZHIPUAI_API_KEY 未设置！请在 .env 文件中配置")
     
     return ChatOpenAI(
-        model="glm-4",  
+        model=model_name,
         openai_api_key=api_key,           
         openai_api_base="https://open.bigmodel.cn/api/paas/v4",
         temperature=0.7,
         max_tokens=2048
     )
 
-def get_qa_chain(vector_store_path="data/vector_store"):
+def get_qa_chain(vector_store_path="data/vector_store", model_name="glm-4"):
     print("正在加载大模型与本地 FAISS 向量库...")
-    llm = get_llm()
+    llm = get_llm(model_name)
     embeddings = get_embeddings()
     vector_store = FAISS.load_local(vector_store_path, embeddings, allow_dangerous_deserialization=True)
     
@@ -67,3 +67,10 @@ def get_qa_chain(vector_store_path="data/vector_store"):
     )
     
     return chain
+
+# 备用：一个不依赖检索、纯靠大模型自身知识的对话链（用于对比测试）
+def get_general_chain(model_name="glm-4-flash"):
+    llm = get_llm(model_name)
+    memory = ConversationBufferMemory(memory_key="history", return_messages=True)
+    # 使用基础的 ConversationChain，纯依靠大模型自身知识
+    return ConversationChain(llm=llm, memory=memory)
