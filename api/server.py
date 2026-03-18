@@ -1,54 +1,60 @@
 import os
 import sys
-# 确保能够导入 core 目录下的模块
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
-from core.agent_chain import get_qa_chain
+from core.agent_chain import get_qa_chain, get_general_chain
 
-# 初始化 FastAPI 应用
-app = FastAPI(
-    title="学术文献 RAG 智能体 API",
-    description="基于本地 FAISS 和智谱 GLM-4 的学术研判接口",
-    version="1.0.0"
-)
+app = FastAPI(title="全能学术 RAG 智能体 API")
 
-# 声明一个全局变量来存储对话链（避免每次请求都重新加载向量库，压榨 Ryzen 5 5600 的性能）
-qa_chain = None
+# 【核心架构】：定义一个内存字典，用于缓存不同模式和模型的对话链
+# 避免每次请求都重新加载向量库，压榨 CPU 性能
+chains_cache = {"kb": {}, "general": {}}
 
 @app.on_event("startup")
 def startup_event():
-    global qa_chain
-    print("🚀 正在启动服务，加载大模型与本地知识库...")
-    qa_chain = get_qa_chain()
+    print("🚀 正在启动服务，预加载默认模型与知识库...")
+    # 【修改这里】：明确指定 model_name 参数
+    chains_cache["kb"]["glm-4-flash"] = get_qa_chain(model_name="glm-4-flash")
+    chains_cache["general"]["glm-4-flash"] = get_general_chain(model_name="glm-4-flash")
     print("✅ 服务启动完毕！API 接口已就绪。")
 
-# 定义前端传过来的 JSON 数据格式
+# 【修改点】：扩展 JSON 协议，增加 mode 和 model_name
 class ChatRequest(BaseModel):
     query: str
+    mode: str = "kb"          # "kb" (知识库) 或 "general" (闲聊)
+    model_name: str = "glm-4-flash"
 
-# 定义 POST 接口
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    if not qa_chain:
-        return {"error": "服务未初始化完成，请稍后再试"}
+    mode = request.mode
+    model_name = request.model_name
+    query = request.query
+
+    # 动态加载机制：如果用户选了新模型，就在缓存里新实例化一个
+    if model_name not in chains_cache[mode]:
+        print(f"🔄 动态加载新链路: {mode} 模式 - {model_name} 模型...")
+        if mode == "kb":
+            # 【修改这里】：明确指定 model_name 参数
+            chains_cache[mode][model_name] = get_qa_chain(model_name=model_name)
+        else:
+            # 【修改这里】：明确指定 model_name 参数
+            chains_cache[mode][model_name] = get_general_chain(model_name=model_name)
+
+    chain = chains_cache[mode][model_name]
+    print(f"📨 收到请求: [{mode} | {model_name}] {query}")
     
-    print(f"收到请求: {request.query}")
-    
-    # 核心：调用我们在 core 目录写好的逻辑
-    res = qa_chain.invoke({"question": request.query})
-    
-    # 提取并去重底层的来源文件路径 (PyMuPDFLoader 会自动把路径存在 metadata 里)
-    sources = list(set([doc.metadata.get('source', '未知出处') for doc in res['source_documents']]))
-    
-    # 返回标准的 JSON 格式给前端
-    return {
-        "answer": res['answer'],
-        "sources": sources
-    }
+    # 智能路由执行逻辑
+    if mode == "kb":
+        res = chain.invoke({"question": query})
+        sources = list(set([doc.metadata.get('source', '未知出处') for doc in res['source_documents']]))
+        return {"answer": res['answer'], "sources": sources}
+    else:
+        # General 模式直接闲聊，输入参数是 input，输出参数是 response，无出处
+        res = chain.invoke({"input": query})
+        return {"answer": res['response'], "sources": []}
 
 if __name__ == "__main__":
-    # 启动 Uvicorn 服务器，监听本地 8000 端口
     uvicorn.run(app, host="127.0.0.1", port=8000)
