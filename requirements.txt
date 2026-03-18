@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+streamlit
+langchain
+langchain-community
+zhipuai
+PyPDF2
+faiss-cpu
+python-dotenv
