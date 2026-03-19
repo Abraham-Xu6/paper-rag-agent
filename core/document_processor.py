@@ -11,7 +11,16 @@ def process_pdf(file_path: str):
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=150,
-        separators=["\n\n", "\n", ". ", " ", ""] ,
+        separators=[
+            "\n\n", 
+            "\n", 
+            "。",   # 中文句号（最高优先级分句）
+            "！", "？", # 中文叹号与问号
+            ". ",    # 英文句号
+            "；", "，", # 中文分号与逗号
+            " ",     # 英文空格
+            ""       # 终极兜底：逐字切分
+        ],
         length_function=len,
         is_separator_regex=False
     )
