@@ -8,7 +8,7 @@ from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
 load_dotenv() 
 
-# 【高光时刻】：亲手复刻我们之前调优的学术级 Prompt
+# 调优的学术级 Prompt
 QA_TEMPLATE = """你是一个精通深度学习与人类活动识别（HAR）领域的资深学术研判助手。
 你的任务是根据下方【已知信息】来严谨地回答问题。
 
@@ -41,12 +41,17 @@ def get_llm(model_name="glm-4"):
         max_tokens=2048
     )
 
-def get_qa_chain(vector_store_path="data/vector_store", model_name="glm-4"):
-    print("正在加载大模型与本地 FAISS 向量库...")
+def get_qa_chain(model_name="glm-4-flash", kb_name="default"):
+    # 动态拼接这个知识库的本地路径
+    vector_store_path = os.path.join("data", "vector_store", kb_name)
     llm = get_llm(model_name)
     embeddings = get_embeddings()
-    vector_store = FAISS.load_local(vector_store_path, embeddings, allow_dangerous_deserialization=True)
     
+    # 增加容错机制：如果没找到对应知识库，抛出明确异常
+    if not os.path.exists(os.path.join(vector_store_path, "index.faiss")):
+        raise FileNotFoundError(f"知识库 '{kb_name}' 不存在或尚未上传文件！")
+    
+    vector_store = FAISS.load_local(vector_store_path, embeddings, allow_dangerous_deserialization=True)
     # 将向量库转换为检索器，设置返回 Top-6 最相关的文档块
     retriever = vector_store.as_retriever(search_kwargs={"k": 6})
 
